@@ -1,240 +1,308 @@
-# RAG Document QA System (FastAPI + FAISS)
+# Healthcare Document Intelligence System (RAG-based)
 
-A production-style backend system for document understanding using Retrieval-Augmented Generation (RAG), designed with hybrid retrieval, configurable precision-recall tuning, and observability.
+Production-ready, domain-specific Retrieval-Augmented Generation (RAG) platform for healthcare teams that need fast, explainable answers from patient records, clinical notes, and compliance PDFs.
 
-Upload PDFs, ask questions, get answers grounded strictly in your documents.
+## Problem Statement
 
----
+Healthcare operations are slowed by fragmented documents and manual search:
+- patient histories distributed across multiple files
+- discharge summaries with inconsistent structure
+- compliance policies that are hard to query quickly
 
-## Features
+Keyword search misses semantic intent, and generic chat can hallucinate.  
+This system grounds every answer in retrieved source chunks from uploaded healthcare documents.
 
-| Capability | Detail |
-|---|---|
-| **Ingestion** | PDF upload → text extraction → chunking (`size=500`, `overlap=100`) |
-| **Embeddings** | SentenceTransformers (`all-MiniLM-L6-v2` by default) |
-| **Retrieval** | Hybrid: keyword pre-filter → FAISS vector search → re-ranking |
-| **Generation** | OpenAI (configurable model) with strict context-only prompting; extractive fallback if no API key |
-| **Caching** | In-memory query cache with configurable TTL |
-| **Observability** | Structured logs per query + `/metrics` endpoint |
+## Solution Overview
 
----
+This project delivers:
+- FastAPI backend for ingestion, retrieval, and answer generation
+- React + Tailwind web UI for upload and conversational querying
+- Source-grounded responses with top retrieved chunks
+- Caching, logging, runtime metrics, and a simple evaluation runner
 
-## Project Structure
+## Architecture
 
+```text
+[PDF Upload]
+   |
+   v
+[Text Extraction] -> [Chunking (configurable)] -> [Embeddings]
+   |
+   v
+[FAISS + Metadata Persistence]
+   |
+   v
+[Hybrid Retrieval: Keyword shortlist + Vector search + Re-rank]
+   |
+   v
+[Threshold filter + Cache]
+   |
+   v
+[LLM generation (or strict fallback)]
+   |
+   v
+[Answer + source chunks + latency]
 ```
+
+## Updated Folder Structure
+
+```text
 app/
-├── main.py
-├── api/
-│   ├── upload.py
-│   ├── query.py
-│   └── metrics.py
-├── core/
-│   └── config.py
-├── services/
-│   ├── embedding.py
-│   ├── ingestion.py
-│   ├── retriever.py
-│   ├── generator.py
-│   ├── cache.py
-│   └── metrics.py
-├── db/
-│   └── vector_store.py
-└── utils/
-    └── pdf_loader.py
+  main.py
+  api/
+    upload.py
+    query.py
+    metrics.py
+  core/
+    config.py
+  services/
+    embedding.py
+    ingestion.py
+    retriever.py
+    generator.py
+    cache.py
+    metrics.py
+  db/
+    vector_store.py
+  utils/
+    pdf_loader.py
+  evaluation/
+    run_evaluation.py
+frontend/
+  package.json
+  vite.config.js
+  tailwind.config.js
+  postcss.config.js
+  vercel.json
+  src/
+    App.jsx
+    api.js
+    main.jsx
+    index.css
+test/
+  ...
+render.yaml
 requirements.txt
 README.md
 ```
 
----
+## Tech Stack
 
-## Quickstart
+### Backend
+- FastAPI
+- FAISS
+- SentenceTransformers
+- PyPDF
+- OpenAI API (optional)
 
-### 1. Install
+### Frontend
+- React (Vite)
+- Tailwind CSS
+
+### Evaluation & Quality
+- pytest + pytest-asyncio + httpx
+- custom evaluation runner (`app/evaluation/run_evaluation.py`)
+
+## Core Features
+
+- Healthcare-oriented PDF ingestion and indexing
+- Configurable chunking (`CHUNK_SIZE`, `CHUNK_OVERLAP`)
+- Hybrid retrieval (keyword + vector + re-ranking)
+- Query controls (`top_k`, `threshold`)
+- Retrieval toggle (`use_retrieval`) for baseline comparison
+- In-memory response caching with TTL
+- Structured observability logs (query, latency, sources)
+- Metrics endpoint (`/metrics`)
+- Source display for explainable answers in UI
+
+## Backend Setup
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate       # Windows
-# source .venv/bin/activate  # macOS / Linux
-
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure (optional)
+Create `.env` in project root:
 
-All settings have defaults and can be overridden via environment variables:
-
-```bash
-set OPENAI_API_KEY=your_openai_api_key   # omit to use extractive fallback
-set OPENAI_MODEL=gpt-4o-mini
-set EMBEDDING_MODEL=all-MiniLM-L6-v2
-set DATA_DIR=data
-set TOP_K=5
-set SIMILARITY_THRESHOLD=0.7
-set QUERY_CACHE_TTL_SECONDS=300
+```env
+PROJECT_NAME=Healthcare Document Intelligence System
+PROJECT_VERSION=2.0.0
+PROJECT_DESCRIPTION=RAG platform for patient records, clinical notes, and compliance documents.
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+DATA_DIR=data
+TOP_K=5
+SIMILARITY_THRESHOLD=0.7
+CHUNK_SIZE=500
+CHUNK_OVERLAP=100
+QUERY_CACHE_TTL_SECONDS=300
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-> Defaults are defined in `app/core/config.py`. `TOP_K` and `SIMILARITY_THRESHOLD` can also be overridden per request at query time.
-
-### 3. Run
+Run backend:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-- API: `http://127.0.0.1:8000`  
-- Interactive docs: `http://127.0.0.1:8000/docs`
+Endpoints:
+- API: `http://127.0.0.1:8000`
+- Swagger: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
 
----
+## Frontend Setup (React + Tailwind)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on `http://localhost:5173`.
+
+Optional frontend env:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
 
 ## API Reference
 
-### `POST /upload` — Ingest a PDF
+### `POST /upload`
+Ingest healthcare PDFs (patient records, clinical notes, compliance docs).
 
-Upload a PDF file for chunking and indexing.
-
-**Form field:** `file` (multipart/form-data)
-
-```bash
-curl -X POST "http://127.0.0.1:8000/upload" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@sample.pdf;type=application/pdf"
-```
-
-**Response**
+### `POST /query`
+Request:
 
 ```json
 {
-  "status": "success",
-  "filename": "sample.pdf",
-  "chunks_created": 18,
-  "characters_processed": 8432
+  "question": "What medications is the patient taking?"
 }
 ```
 
----
+Optional query params:
+- `top_k`
+- `threshold`
+- `use_retrieval` (`true` or `false`)
+- `bypass_cache` (`true` or `false`, useful for evaluation)
 
-### `POST /query` — Ask a Question
-
-Query across all ingested documents.
-
-**Query params (optional)**
-
-| Param | Type | Description |
-|---|---|---|
-| `top_k` | int | Number of chunks to retrieve (overrides default) |
-| `threshold` | float 0–1 | Minimum similarity score to include a chunk |
-
-**Request body**
+Response:
 
 ```json
 {
-  "question": "What is the refund policy?"
-}
-```
-
-```bash
-# Basic query
-curl -X POST "http://127.0.0.1:8000/query" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What is the refund policy?"}'
-
-# With retrieval overrides
-curl -X POST "http://127.0.0.1:8000/query?top_k=3&threshold=0.6" \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What is the refund policy?"}'
-```
-
-**Response — answer found**
-
-```json
-{
-  "answer": "Refunds are allowed within 30 days of purchase.",
+  "answer": "...",
   "retrieved_chunks": [
     {
       "text": "...",
-      "source": "sample.pdf",
-      "chunk_id": 7,
-      "score": 0.8123,
-      "rerank_score": 0.8342
+      "source": "patient_record_001.pdf",
+      "chunk_id": 17,
+      "score": 0.62,
+      "similarity": 0.81,
+      "keyword_score": 0.33,
+      "rerank_score": 0.71
     }
   ],
-  "response_time_ms": 184.72
+  "response_time_ms": 34.7
 }
 ```
 
-**Response — no relevant context found**
+### `GET /metrics`
 
 ```json
 {
-  "answer": "Not found",
-  "retrieved_chunks": [],
-  "response_time_ms": 12.34
+  "total_queries": 120,
+  "avg_response_time": 28.6,
+  "cache_hits": 45,
+  "cache_misses": 75
 }
 ```
 
----
+## Domain Example Queries
 
-### `GET /metrics` — Runtime Stats
+- What medications is the patient currently taking?
+- Summarize discharge notes for this patient.
+- What allergies are documented in the record?
+- What follow-up visits are recommended?
+- What does the compliance policy say about data retention?
 
-```json
-{
-  "total_queries": 12,
-  "avg_response_time": 27.41,
-  "cache_hits": 5,
-  "cache_misses": 7
-}
+## Evaluation Module (Latency + Qualitative Accuracy)
+
+Run:
+
+```bash
+python -m app.evaluation.run_evaluation --base-url http://127.0.0.1:8000 --top-k 5 --threshold 0.7
 ```
 
----
+Evaluation script behavior:
+- executes 12 predefined healthcare-style questions
+- compares responses with retrieval vs without retrieval
+- reports:
+  - average latency
+  - qualitative accuracy (keyword overlap score)
+- stores output JSON in:
+  - `test/results/healthcare_eval_metrics.json`
 
-## How It Works
+## Deployment
 
-```
-PDF Upload
-  └─► Text extraction
-        └─► Chunking (500 chars, 100 overlap)
-              └─► Embedding (SentenceTransformers)
-                    └─► FAISS index (persisted to DATA_DIR)
+### Backend (Render)
 
-Query
-  └─► Cache check (hit → return immediately)
-        └─► Keyword pre-filter
-              └─► FAISS vector search (top_k)
-                    └─► Re-ranking
-                          └─► Threshold filter
-                                └─► LLM generation (or extractive fallback)
-                                      └─► Cache store + return
+`render.yaml` is provided. Default start command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
 
-**Prompt contract** — the generator always uses this system instruction:
+Set required env vars in Render dashboard (`OPENAI_API_KEY`, retrieval/chunk settings, etc.).
 
-> *Answer ONLY using the provided context. If the answer is not in the context, say "Not found".*
+### Frontend (Vercel)
 
----
+`frontend/vercel.json` is included for Vite SPA deployment.
 
-## Observability
+Recommended Vercel settings:
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variable: `VITE_API_BASE_URL=<your-backend-url>`
 
-Every query logs:
+## Screenshots Placeholders
 
-- Query text
-- Response time (ms)
-- Chunk count retrieved
-- Cache status (`hit` / `miss`)
-- Active `top_k` and `threshold` values
-- Top chunk previews with scores and source filenames
+Add polished product screenshots to:
+- `docs/screenshots/healthcare-chat.png`
+- `docs/screenshots/source-evidence-panel.png`
+- `docs/screenshots/upload-flow.png`
 
----
+Current API verification screenshots:
+
+![Swagger Overview](test/results/screenshots/swagger_overview.png)
+![Swagger Query CO2 Result](test/results/screenshots/swagger_query_co2_result.png)
+![Swagger Query Romulus Result](test/results/screenshots/swagger_query_romulus_result.png)
 
 ## Production Notes
 
-- **Persistence** — FAISS index and chunk metadata are written to `DATA_DIR` (`data/` by default) on each upload and reloaded on startup.
-- **Caching** — In-memory, keyed by normalised query string, evicted after `QUERY_CACHE_TTL_SECONDS`.
-- **Retrieval tuning** — Hybrid retrieval (keyword → vector → rerank) balances precision and recall. Raise `threshold` to tighten answers; lower `top_k` to reduce latency.
-- **Scaling** — For high-throughput ingestion, consider an async task queue (Celery, ARQ). Add authentication and rate limiting before exposing the API publicly.
-- **No API key** — The extractive fallback selects the highest-scoring retrieved chunk as the answer, so the system remains functional without OpenAI access.
+- no hardcoded secrets; env-driven configuration
+- answer grounding via retrieved source chunks
+- query cache and metrics are thread-safe
+- modular architecture ready for auth, audit logs, PHI redaction, and EHR connectors
+# Healthcare Document Intelligence System (RAG-based)
 
+Production-ready, domain-specific Retrieval-Augmented Generation (RAG) platform for healthcare teams that need fast, explainable answers from patient records, clinical notes, and compliance PDFs.
+
+## Problem Statement
+
+Healthcare operations are slowed by fragmented documents and manual search:
+- patient histories distributed across multiple files
+- discharge summaries with inconsistent structure
+- compliance policies that are hard to query quickly
+
+Keyword search misses semantic intent, and generic chat can hallucinate.  
+This system grounds every answer in retrieved source chunks from uploaded healthcare documents.
+
+## Solution Overview
+
+<<<<<<< HEAD
 ---
-
 ## UI Screenshots
 
 Swagger overview:
@@ -250,3 +318,288 @@ Swagger overview:
 `When was Romulus Augustulus deposed?`
 
 ![Swagger Query Romulus Result](test/results/screenshots/swagger_query_romulus_result.png)
+## Project Structure
+=======
+This project delivers:
+- FastAPI backend for ingestion, retrieval, and answer generation
+- React + Tailwind web UI for upload and conversational querying
+- Source-grounded responses with top retrieved chunks
+- Caching, logging, runtime metrics, and a simple evaluation runner
+
+## Architecture
+>>>>>>> e2e4522 (Transform project into a healthcare-focused document intelligence platform.)
+
+```text
+[PDF Upload]
+   |
+   v
+[Text Extraction] -> [Chunking (configurable)] -> [Embeddings]
+   |
+   v
+[FAISS + Metadata Persistence]
+   |
+   v
+[Hybrid Retrieval: Keyword shortlist + Vector search + Re-rank]
+   |
+   v
+[Threshold filter + Cache]
+   |
+   v
+[LLM generation (or strict fallback)]
+   |
+   v
+[Answer + source chunks + latency]
+```
+
+## Updated Folder Structure
+
+```text
+app/
+  main.py
+  api/
+    upload.py
+    query.py
+    metrics.py
+  core/
+    config.py
+  services/
+    embedding.py
+    ingestion.py
+    retriever.py
+    generator.py
+    cache.py
+    metrics.py
+  db/
+    vector_store.py
+  utils/
+    pdf_loader.py
+  evaluation/
+    run_evaluation.py
+frontend/
+  package.json
+  vite.config.js
+  tailwind.config.js
+  postcss.config.js
+  vercel.json
+  src/
+    App.jsx
+    api.js
+    main.jsx
+    index.css
+test/
+  ...
+render.yaml
+requirements.txt
+README.md
+```
+
+## Tech Stack
+
+### Backend
+- FastAPI
+- FAISS
+- SentenceTransformers
+- PyPDF
+- OpenAI API (optional)
+
+### Frontend
+- React (Vite)
+- Tailwind CSS
+
+### Evaluation & Quality
+- pytest + pytest-asyncio + httpx
+- custom evaluation runner (`app/evaluation/run_evaluation.py`)
+
+## Core Features
+
+- Healthcare-oriented PDF ingestion and indexing
+- Configurable chunking (`CHUNK_SIZE`, `CHUNK_OVERLAP`)
+- Hybrid retrieval (keyword + vector + re-ranking)
+- Query controls (`top_k`, `threshold`)
+- Retrieval toggle (`use_retrieval`) for baseline comparison
+- In-memory response caching with TTL
+- Structured observability logs (query, latency, sources)
+- Metrics endpoint (`/metrics`)
+- Source display for explainable answers in UI
+
+## Backend Setup
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Create `.env` in project root:
+
+```env
+PROJECT_NAME=Healthcare Document Intelligence System
+PROJECT_VERSION=2.0.0
+PROJECT_DESCRIPTION=RAG platform for patient records, clinical notes, and compliance documents.
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+DATA_DIR=data
+TOP_K=5
+SIMILARITY_THRESHOLD=0.7
+CHUNK_SIZE=500
+CHUNK_OVERLAP=100
+QUERY_CACHE_TTL_SECONDS=300
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Run backend:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Endpoints:
+- API: `http://127.0.0.1:8000`
+- Swagger: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+
+## Frontend Setup (React + Tailwind)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on `http://localhost:5173`.
+
+Optional frontend env:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+## API Reference
+
+### `POST /upload`
+Ingest healthcare PDFs (patient records, clinical notes, compliance docs).
+
+### `POST /query`
+Request:
+
+```json
+{
+  "question": "What medications is the patient taking?"
+}
+```
+
+Optional query params:
+- `top_k`
+- `threshold`
+- `use_retrieval` (`true` or `false`)
+
+Response:
+
+```json
+{
+  "answer": "...",
+  "retrieved_chunks": [
+    {
+      "text": "...",
+      "source": "patient_record_001.pdf",
+      "chunk_id": 17,
+      "score": 0.62,
+      "similarity": 0.81,
+      "keyword_score": 0.33,
+      "rerank_score": 0.71
+    }
+  ],
+  "response_time_ms": 34.7
+}
+```
+
+### `GET /metrics`
+
+```json
+{
+  "total_queries": 120,
+  "avg_response_time": 28.6,
+  "cache_hits": 45,
+  "cache_misses": 75
+}
+```
+
+## Domain Example Queries
+
+- What medications is the patient currently taking?
+- Summarize discharge notes for this patient.
+- What allergies are documented in the record?
+- What follow-up visits are recommended?
+- What does the compliance policy say about data retention?
+
+## Evaluation Module (Latency + Qualitative Accuracy)
+
+Run:
+
+```bash
+python -m app.evaluation.run_evaluation --base-url http://127.0.0.1:8000 --top-k 5 --threshold 0.7
+```
+
+Evaluation script behavior:
+- executes 12 predefined healthcare-style questions
+- compares responses with retrieval vs without retrieval
+- reports:
+  - average latency
+  - qualitative accuracy (keyword overlap score)
+- stores output JSON in:
+  - `test/results/healthcare_eval_metrics.json`
+
+## Deployment
+
+### Backend (Render)
+
+`render.yaml` is provided. Default start command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Set required env vars in Render dashboard (`OPENAI_API_KEY`, retrieval/chunk settings, etc.).
+
+### Frontend (Vercel)
+
+`frontend/vercel.json` is included for Vite SPA deployment.
+
+Recommended Vercel settings:
+- Root directory: `frontend`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Environment variable: `VITE_API_BASE_URL=<your-backend-url>`
+
+## Screenshots Placeholders
+
+Add polished product screenshots to:
+- `docs/screenshots/healthcare-chat.png`
+- `docs/screenshots/source-evidence-panel.png`
+- `docs/screenshots/upload-flow.png`
+
+Current API verification screenshots:
+
+![Swagger Overview](test/results/screenshots/swagger_overview.png)
+![Swagger Query CO2 Result](test/results/screenshots/swagger_query_co2_result.png)
+![Swagger Query Romulus Result](test/results/screenshots/swagger_query_romulus_result.png)
+
+## Production Notes
+
+<<<<<<< HEAD
+- **Persistence** — FAISS index and chunk metadata are written to `DATA_DIR` (`data/` by default) on each upload and reloaded on startup.
+- **Caching** — In-memory, keyed by normalised query string, evicted after `QUERY_CACHE_TTL_SECONDS`.
+- **Retrieval tuning** — Hybrid retrieval (keyword → vector → rerank) balances precision and recall. Raise `threshold` to tighten answers; lower `top_k` to reduce latency.
+- **Scaling** — For high-throughput ingestion, consider an async task queue (Celery, ARQ). Add authentication and rate limiting before exposing the API publicly.
+- **No API key** — The extractive fallback selects the highest-scoring retrieved chunk as the answer, so the system remains functional without OpenAI access.
+
+---
+
+
+=======
+- no hardcoded secrets; env-driven configuration
+- answer grounding via retrieved source chunks
+- query cache and metrics are thread-safe
+- modular architecture ready for auth, audit logs, PHI redaction, and EHR connectors
+>>>>>>> e2e4522 (Transform project into a healthcare-focused document intelligence platform.)

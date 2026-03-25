@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.metrics import router as metrics_router
 from app.api.query import router as query_router
@@ -33,8 +33,8 @@ async def lifespan(app: FastAPI):
     logger = logging.getLogger(__name__)
     settings = get_settings()
 
-    model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    data_dir = Path(os.getenv("DATA_DIR", "data"))
+    model_name = settings.embedding_model
+    data_dir = Path(settings.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Initializing embedding model: %s", model_name)
@@ -51,8 +51,8 @@ async def lifespan(app: FastAPI):
     ingestion_service = IngestionService(
         vector_store=vector_store,
         embedding_service=embedding_service,
-        chunk_size=500,
-        chunk_overlap=100,
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
     )
     retriever_service = RetrieverService(vector_store=vector_store, top_k=settings.top_k)
     generator_service = GeneratorService()
@@ -68,10 +68,12 @@ async def lifespan(app: FastAPI):
     app.state.metrics_service = metrics_service
 
     logger.info(
-        "RAG initialized | chunks=%s | top_k=%s | similarity_threshold=%s | cache_ttl=%ss",
+        "Healthcare RAG initialized | chunks=%s | top_k=%s | threshold=%s | chunk_size=%s | overlap=%s | cache_ttl=%ss",
         vector_store.size,
         settings.top_k,
         settings.similarity_threshold,
+        settings.chunk_size,
+        settings.chunk_overlap,
         settings.query_cache_ttl_seconds,
     )
     yield
@@ -79,10 +81,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Production-style RAG Backend",
-    version="1.0.0",
-    description="FastAPI + FAISS backend for PDF ingestion and retrieval-augmented QA.",
+    title=get_settings().project_name,
+    version=get_settings().project_version,
+    description=get_settings().project_description,
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(upload_router)

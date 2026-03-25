@@ -18,7 +18,7 @@ router = APIRouter(tags=["query"])
 
 
 class QueryRequest(BaseModel):
-    question: str = Field(..., min_length=3, description="Natural language question.")
+    question: str = Field(..., min_length=3, description="Healthcare-focused natural language question.")
 
 
 class QueryResponse(BaseModel):
@@ -66,6 +66,14 @@ async def query_documents(
         le=1.0,
         description="Optional similarity threshold override (defaults to SIMILARITY_THRESHOLD from config).",
     ),
+    use_retrieval: bool = Query(
+        default=True,
+        description="Disable retrieval to benchmark generation-only baseline.",
+    ),
+    bypass_cache: bool = Query(
+        default=False,
+        description="Bypass query cache (useful for controlled evaluation runs).",
+    ),
     embedding_service: EmbeddingService = Depends(get_embedding_service),
     retriever_service: RetrieverService = Depends(get_retriever_service),
     generator_service: GeneratorService = Depends(get_generator_service),
@@ -82,7 +90,7 @@ async def query_documents(
     effective_threshold = threshold if threshold is not None else settings.similarity_threshold
 
     cache_used = False
-    cached_response = query_cache_service.get(question)
+    cached_response = None if bypass_cache else query_cache_service.get(question)
     if cached_response is not None:
         cache_used = True
         response_time_ms = round((perf_counter() - started_at) * 1000, 2)
@@ -101,15 +109,21 @@ async def query_documents(
         )
 
     try:
-        query_embedding = embedding_service.embed_query(question)
-        retrieved = retriever_service.retrieve(
-            question=question,
-            query_embedding=query_embedding,
-            top_k=effective_top_k,
-            similarity_threshold=effective_threshold,
-        )
-        contexts = [item["text"] for item in retrieved]
-        if not retrieved:
+        retrieved: list[dict] = []
+        contexts: list[str] = []
+        if use_retrieval:
+            query_embedding = embedding_service.embed_query(question)
+            retrieved = retriever_service.retrieve(
+                question=question,
+                query_embedding=query_embedding,
+                top_k=effective_top_k,
+                similarity_threshold=effective_threshold,
+            )
+            contexts = [item["text"] for item in retrieved]
+
+        if not use_retrieval:
+            answer = generator_service.generate_answer(question=question, contexts=[])
+        elif not retrieved:
             answer = "Not found"
         elif contexts:
             answer = generator_service.generate_answer(question=question, contexts=contexts)
@@ -120,23 +134,27 @@ async def query_documents(
 
     response_time_ms = round((perf_counter() - started_at) * 1000, 2)
     metrics_service.record_query(response_time_ms=response_time_ms, cache_hit=False)
-    query_cache_service.set(
-        question,
-        {
-            "answer": answer,
-            "retrieved_chunks": retrieved,
-        },
-    )
+    if not bypass_cache:
+        query_cache_service.set(
+            question,
+            {
+                "answer": answer,
+                "retrieved_chunks": retrieved,
+            },
+        )
 
     logger.info(
-        "Query=%s | Retrieved=%s | CacheUsed=%s | ResponseTimeMs=%s | top_k=%s | threshold=%s",
+        "Query=%s | Retrieved=%s | CacheUsed=%s | ResponseTimeMs=%s | top_k=%s | threshold=%s | use_retrieval=%s | bypass_cache=%s",
         question,
         len(retrieved),
         cache_used,
         response_time_ms,
         effective_top_k,
         effective_threshold,
+        use_retrieval,
+        bypass_cache,
     )
+    logger.info("Retrieved document sources: %s", [chunk.get("source") for chunk in retrieved])
     for idx, chunk in enumerate(retrieved, start=1):
         logger.info(
             "Top chunk %s | similarity=%s | source=%s | text=%s",

@@ -16,6 +16,7 @@ async def upload_pdf(
     file: UploadFile = File(...),
     ingestion_service: IngestionService = Depends(get_ingestion_service),
 ) -> dict:
+    # Healthcare pipeline accepts structured/unstructured PDF records.
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required.")
     if file.content_type not in {"application/pdf", "application/octet-stream"}:
