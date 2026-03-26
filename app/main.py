@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 
 from app.api.metrics import router as metrics_router
 from app.api.query import router as query_router
@@ -37,8 +38,9 @@ async def lifespan(app: FastAPI):
     data_dir = Path(settings.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Initializing embedding model: %s", model_name)
+    logger.info("Preparing embedding service: %s", model_name)
     embedding_service = EmbeddingService(model_name=model_name)
+    embedding_service.set_query_cache_size(settings.embedding_cache_size)
 
     index_path = str(data_dir / "faiss.index")
     metadata_path = str(data_dir / "metadata.json")
@@ -67,14 +69,20 @@ async def lifespan(app: FastAPI):
     app.state.query_cache_service = query_cache_service
     app.state.metrics_service = metrics_service
 
+    if settings.prewarm_embedding_model:
+        logger.info("Pre-warming embedding model in startup.")
+        await run_in_threadpool(embedding_service.embed_query, "startup warmup")
+
     logger.info(
-        "Healthcare RAG initialized | chunks=%s | top_k=%s | threshold=%s | chunk_size=%s | overlap=%s | cache_ttl=%ss",
+        "Healthcare RAG initialized | chunks=%s | top_k=%s | threshold=%s | chunk_size=%s | overlap=%s | cache_ttl=%ss | embedding_cache=%s | prewarm=%s",
         vector_store.size,
         settings.top_k,
         settings.similarity_threshold,
         settings.chunk_size,
         settings.chunk_overlap,
         settings.query_cache_ttl_seconds,
+        settings.embedding_cache_size,
+        settings.prewarm_embedding_model,
     )
     yield
     logger.info("Application shutdown complete.")

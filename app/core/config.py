@@ -43,6 +43,9 @@ class Settings:
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "500"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "100"))
     query_cache_ttl_seconds: int = int(os.getenv("QUERY_CACHE_TTL_SECONDS", "300"))
+    embedding_cache_size: int = int(os.getenv("EMBEDDING_CACHE_SIZE", "1024"))
+    prewarm_embedding_model: bool = os.getenv("PREWARM_EMBEDDING_MODEL", "false").lower() == "true"
+    max_return_chunk_chars: int = int(os.getenv("MAX_RETURN_CHUNK_CHARS", "180"))
     cors_origins: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:

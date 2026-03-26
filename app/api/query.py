@@ -5,6 +5,7 @@ from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings
 from app.services.cache import QueryCacheService
@@ -51,6 +52,18 @@ def get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
 
+def _trim_chunks(chunks: list[dict], max_chars: int) -> list[dict]:
+    limit = max(1, max_chars)
+    trimmed: list[dict] = []
+    for chunk in chunks:
+        item = dict(chunk)
+        text = item.get("text", "")
+        if isinstance(text, str) and len(text) > limit:
+            item["text"] = text[: limit - 3].rstrip() + "..."
+        trimmed.append(item)
+    return trimmed
+
+
 @router.post("/query", response_model=QueryResponse)
 async def query_documents(
     body: QueryRequest,
@@ -90,7 +103,8 @@ async def query_documents(
     effective_threshold = threshold if threshold is not None else settings.similarity_threshold
 
     cache_used = False
-    cached_response = None if bypass_cache else query_cache_service.get(question)
+    cache_key = f"{question}|k={effective_top_k}|t={effective_threshold}|r={int(use_retrieval)}"
+    cached_response = None if bypass_cache else query_cache_service.get(cache_key)
     if cached_response is not None:
         cache_used = True
         response_time_ms = round((perf_counter() - started_at) * 1000, 2)
@@ -112,21 +126,22 @@ async def query_documents(
         retrieved: list[dict] = []
         contexts: list[str] = []
         if use_retrieval:
-            query_embedding = embedding_service.embed_query(question)
-            retrieved = retriever_service.retrieve(
-                question=question,
-                query_embedding=query_embedding,
-                top_k=effective_top_k,
-                similarity_threshold=effective_threshold,
+            query_embedding = await run_in_threadpool(embedding_service.embed_query, question)
+            retrieved = await run_in_threadpool(
+                retriever_service.retrieve,
+                question,
+                query_embedding,
+                effective_top_k,
+                effective_threshold,
             )
             contexts = [item["text"] for item in retrieved]
 
         if not use_retrieval:
-            answer = generator_service.generate_answer(question=question, contexts=[])
+            answer = await run_in_threadpool(generator_service.generate_answer, question, [])
         elif not retrieved:
             answer = "Not found"
         elif contexts:
-            answer = generator_service.generate_answer(question=question, contexts=contexts)
+            answer = await run_in_threadpool(generator_service.generate_answer, question, contexts)
         else:
             answer = "Not found"
     except Exception as exc:  # noqa: BLE001
@@ -134,12 +149,13 @@ async def query_documents(
 
     response_time_ms = round((perf_counter() - started_at) * 1000, 2)
     metrics_service.record_query(response_time_ms=response_time_ms, cache_hit=False)
+    returned_chunks = _trim_chunks(retrieved, settings.max_return_chunk_chars)
     if not bypass_cache:
         query_cache_service.set(
-            question,
+            cache_key,
             {
                 "answer": answer,
-                "retrieved_chunks": retrieved,
+                "retrieved_chunks": returned_chunks,
             },
         )
 
@@ -166,6 +182,6 @@ async def query_documents(
 
     return QueryResponse(
         answer=answer,
-        retrieved_chunks=retrieved,
+        retrieved_chunks=returned_chunks,
         response_time_ms=response_time_ms,
     )

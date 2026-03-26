@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from pathlib import Path
 from typing import Any
 
 import faiss
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class FaissVectorStore:
@@ -25,11 +28,23 @@ class FaissVectorStore:
         self._lock = threading.Lock()
         self._metadata: list[dict[str, Any]] = []
 
+        self.index = faiss.IndexFlatIP(dim)
         if self.index_path.exists() and self.metadata_path.exists():
-            self.index = faiss.read_index(str(self.index_path))
-            self._load_metadata()
-        else:
-            self.index = faiss.IndexFlatIP(dim)
+            try:
+                self.index = faiss.read_index(str(self.index_path))
+                self._load_metadata()
+                if len(self._metadata) != self.index.ntotal:
+                    logger.warning(
+                        "FAISS metadata/index mismatch detected (%s != %s). Rebuilding empty index.",
+                        len(self._metadata),
+                        self.index.ntotal,
+                    )
+                    self.index = faiss.IndexFlatIP(dim)
+                    self._metadata = []
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed loading persisted FAISS data. Starting with an empty index.")
+                self.index = faiss.IndexFlatIP(dim)
+                self._metadata = []
 
     @property
     def size(self) -> int:

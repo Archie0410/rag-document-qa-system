@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,6 +22,12 @@ class EmbeddingService:
         self._model: SentenceTransformer | None = None
         self._lock = threading.Lock()
         self.dimension = embedding_dim or self._KNOWN_DIMS.get(model_name, 384)
+        self._query_cache_lock = threading.Lock()
+        self._query_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self._query_cache_size = 1024
+
+    def set_query_cache_size(self, max_entries: int) -> None:
+        self._query_cache_size = max(0, int(max_entries))
 
     def _ensure_model(self) -> SentenceTransformer:
         if self._model is not None:
@@ -45,5 +52,23 @@ class EmbeddingService:
         return vectors.astype("float32")
 
     def embed_query(self, query: str) -> np.ndarray:
+        normalized_query = " ".join(query.strip().lower().split())
+        if not normalized_query:
+            return self.embed_texts([query])[0]
+
+        if self._query_cache_size > 0:
+            with self._query_cache_lock:
+                cached = self._query_cache.get(normalized_query)
+                if cached is not None:
+                    self._query_cache.move_to_end(normalized_query)
+                    return cached.copy()
+
         vector = self.embed_texts([query])[0]
+
+        if self._query_cache_size > 0:
+            with self._query_cache_lock:
+                self._query_cache[normalized_query] = vector.copy()
+                self._query_cache.move_to_end(normalized_query)
+                while len(self._query_cache) > self._query_cache_size:
+                    self._query_cache.popitem(last=False)
         return vector
