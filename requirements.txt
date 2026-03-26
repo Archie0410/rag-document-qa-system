@@ -2,9 +2,9 @@
 fastapi==0.111.1
 uvicorn[standard]==0.30.3
 python-multipart==0.0.9
+faiss-cpu==1.13.2
 sentence-transformers==3.0.1
 transformers==4.41.2
-faiss-cpu==1.13.2
 torch==2.11.0+cpu
 numpy==1.26.4
 pypdf==4.3.1

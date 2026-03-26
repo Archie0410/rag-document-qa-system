@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import Response
 
 from app.api.metrics import router as metrics_router
 from app.api.query import router as query_router
@@ -21,11 +22,19 @@ from app.services.metrics import QueryMetricsService
 from app.services.retriever import RetrieverService
 
 
+class _DropPypdfStartxrefWarning(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage().lower()
+        return "incorrect startxref pointer" not in message
+
+
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
+    # Keep pypdf parser logs useful while hiding known noisy warnings.
+    logging.getLogger("pypdf._reader").addFilter(_DropPypdfStartxrefWarning())
 
 
 @asynccontextmanager
@@ -111,3 +120,14 @@ app.include_router(metrics_router)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    return {"status": "ok", "service": "healthcare-rag-backend"}
+
+
+@app.head("/")
+async def root_head() -> Response:
+    # Explicit HEAD so probes/load balancers that use HEAD still get 200.
+    return Response(status_code=200)
