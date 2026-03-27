@@ -11,7 +11,10 @@ export async function uploadPdf(file) {
       body: formData,
     });
   } catch (error) {
-    throw new Error(`Failed to connect to backend at ${API_BASE_URL}.`);
+    throw new Error(
+      `Failed to connect to backend at ${API_BASE_URL}. ` +
+        "If the API opens in the browser, set CORS on the server: CORS_ORIGINS (your Vercel URL) or CORS_ORIGIN_REGEX for *.vercel.app.",
+    );
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
@@ -29,7 +32,10 @@ export async function askQuestion(question) {
       body: JSON.stringify({ question }),
     });
   } catch (error) {
-    throw new Error(`Failed to connect to backend at ${API_BASE_URL}.`);
+    throw new Error(
+      `Failed to connect to backend at ${API_BASE_URL}. ` +
+        "If the API opens in the browser, set CORS on the server: CORS_ORIGINS (your Vercel URL) or CORS_ORIGIN_REGEX for *.vercel.app.",
+    );
   }
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));

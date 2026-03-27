@@ -26,6 +26,13 @@ def _parse_cors_origins(raw: str | None) -> list[str]:
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
+def _parse_cors_origin_regex(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    stripped = raw.strip()
+    return stripped or None
+
+
 @dataclass(frozen=True)
 class Settings:
     """Centralized runtime configuration for healthcare RAG service."""
@@ -47,9 +54,15 @@ class Settings:
     prewarm_embedding_model: bool = os.getenv("PREWARM_EMBEDDING_MODEL", "false").lower() == "true"
     max_return_chunk_chars: int = int(os.getenv("MAX_RETURN_CHUNK_CHARS", "180"))
     cors_origins: list[str] = None  # type: ignore[assignment]
+    cors_origin_regex: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cors_origins", _parse_cors_origins(os.getenv("CORS_ORIGINS")))
+        object.__setattr__(
+            self,
+            "cors_origin_regex",
+            _parse_cors_origin_regex(os.getenv("CORS_ORIGIN_REGEX")),
+        )
 
 
 @lru_cache(maxsize=1)
