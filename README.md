@@ -19,6 +19,7 @@ This system converts those documents into a semantic knowledge layer so users ca
 
 
 ## Screenshots
+![WhatsApp Image 2026-03-27 at 3 44 21 PM](https://github.com/user-attachments/assets/645e58e8-e6a3-4204-a066-37822304ab2b)
 
 ![Swagger Overview](test/results/screenshots/swagger_overview.png)
 ![Swagger Query CO2 Result](test/results/screenshots/swagger_query_co2_result.png)
